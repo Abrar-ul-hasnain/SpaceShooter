@@ -46,6 +46,11 @@ void Player::update(float deltaTime)
     if (fireCooldown > 0)
         fireCooldown -= deltaTime;
 }
+void Player::setHealth(int h)
+{
+    health = h;
+    if (health > maxHealth) health = maxHealth;
+}
 
 void Player::draw(sf::RenderWindow& window)
 {

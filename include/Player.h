@@ -28,6 +28,7 @@ public:
     int getMaxHealth() const;
     bool isDead() const;
     sf::FloatRect getBounds() const;
+    void setHealth(int h);
 };
 
 #endif
