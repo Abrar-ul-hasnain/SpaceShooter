@@ -28,6 +28,18 @@ int main()
     sf::RenderWindow window(sf::VideoMode({800, 600}), "Space Shooter");
     window.setFramerateLimit(60);
 
+    // Background stars
+    std::vector<sf::RectangleShape> stars;
+    std::vector<float> starSpeeds;
+    for (int i = 0; i < 100; i++)
+    {
+        sf::RectangleShape star(sf::Vector2f(2.0f, 2.0f));
+        star.setFillColor(sf::Color::White);
+        star.setPosition({(float)(rand() % 800), (float)(rand() % 600)});
+        stars.push_back(star);
+        starSpeeds.push_back(50.0f + rand() % 100);
+    }
+
     GameState state = GameState::MENU;
     Menu menu(window);
     ScoreManager scoreManager;
@@ -43,6 +55,9 @@ int main()
     int bossesDefeated = 0;
     float spawnInterval = 2.0f;
     float powerupTimer = 0.0f;
+    bool bossSpawned = false;
+    bool showBossDefeated = false;
+    int nextBossScore = 50;
 
     sf::Font font;
     font.openFromFile("assets/font.ttf");
@@ -75,10 +90,6 @@ int main()
     restartText.setFillColor(sf::Color::Yellow);
     restartText.setPosition({180.0f, 520.0f});
 
-    sf::Text bossWarningText(font, "!! BOSS INCOMING !!", 40);
-    bossWarningText.setFillColor(sf::Color::Red);
-    bossWarningText.setPosition({160.0f, 270.0f});
-
     sf::Text bossDefeatedText(font, "BOSS DEFEATED! NEXT LEVEL!", 34);
     bossDefeatedText.setFillColor(sf::Color::Green);
     bossDefeatedText.setPosition({90.0f, 270.0f});
@@ -86,12 +97,6 @@ int main()
     sf::Clock spawnClock;
     sf::Clock clock;
     sf::Clock bossDefeatedClock;
-    sf::Clock bossWarningClock;
-    bool showBossDefeated = false;
-    bool bossSpawned = false;
-
-    // Boss score thresholds
-    int nextBossScore = 50;
 
     auto resetGame = [&]()
     {
@@ -109,6 +114,7 @@ int main()
         nextBossScore = 50;
         bossSpawned = false;
         powerupTimer = 0.0f;
+        showBossDefeated = false;
         delete player;
         player = new Player(375.0f, 500.0f);
         scoreText.setString("Score: 0");
@@ -119,6 +125,14 @@ int main()
     while (window.isOpen())
     {
         float deltaTime = clock.restart().asSeconds();
+
+        // Stars update
+        for (int i = 0; i < (int)stars.size(); i++)
+        {
+            stars[i].move({0.0f, starSpeeds[i] * deltaTime});
+            if (stars[i].getPosition().y > 600)
+                stars[i].setPosition({(float)(rand() % 800), 0.0f});
+        }
 
         while (const std::optional event = window.pollEvent())
         {
@@ -154,7 +168,7 @@ int main()
                         state = GameState::MENU;
                 }
 
-                // PLAYING + BOSS — ESC to exit
+                // PLAYING + BOSS
                 if (state == GameState::PLAYING || state == GameState::BOSS)
                 {
                     if (keyEvent->code == sf::Keyboard::Key::Escape)
@@ -194,12 +208,16 @@ int main()
             }
         }
 
+        // =====================
         // PLAYING UPDATE
+        // =====================
         if (state == GameState::PLAYING)
         {
+            // Boss defeated message timer
             if (showBossDefeated && bossDefeatedClock.getElapsedTime().asSeconds() > 2.5f)
                 showBossDefeated = false;
-                // Boss defeat ke baad 2 health boxes drop karo
+
+            // Health boxes drop — sirf boss defeat ke baad
             if (bossesDefeated > 0)
             {
                 powerupTimer += deltaTime;
@@ -211,20 +229,24 @@ int main()
                 if (powerupTimer >= 5.0f && powerups.size() == 1)
                 {
                     powerups.push_back(new PowerUp(450.0f, -30.0f));
-                    powerupTimer = 0.0f;
+                    powerupTimer = 999.0f; // done
                 }
             }
 
             // Boss spawn check
-           if (score >= nextBossScore && !bossSpawned)
-               {
-                  enemies.clear();
-                  bossSpawned = true;
-                  powerupTimer = 999.0f;
-                  state = GameState::BOSS;
-                   boss = new BossEnemy(350.0f, 80.0f);
-                }
+            if (score >= nextBossScore && !bossSpawned)
+            {
+                for (auto e : enemies) delete e;
+                enemies.clear();
+                bossSpawned = true;
+                powerupTimer = 999.0f;
+                for (auto p : powerups) delete p;
+                powerups.clear();
+                state = GameState::BOSS;
+                boss = new BossEnemy(350.0f, 80.0f);
+            }
 
+            // Enemy spawn
             if (spawnClock.getElapsedTime().asSeconds() > spawnInterval && !bossSpawned)
             {
                 float randomX = rand() % 720;
@@ -242,6 +264,23 @@ int main()
             for (auto b : bullets) b->update(deltaTime);
             for (auto e : enemies) e->update(deltaTime);
             for (auto p : powerups) p->update(deltaTime);
+
+            // PowerUp-Player Collision
+            for (auto p : powerups)
+            {
+                if (p->getIsActive())
+                {
+                    if (p->getBounds().findIntersection(player->getBounds()).has_value())
+                    {
+                        int newHealth = player->getHealth() + 20;
+                        if (newHealth > player->getMaxHealth())
+                            newHealth = player->getMaxHealth();
+                        player->setHealth(newHealth);
+                        healthText.setString("Health: " + std::to_string(player->getHealth()));
+                        p->setIsActive(false);
+                    }
+                }
+            }
 
             // Bullet-Enemy Collision
             for (auto b : bullets)
@@ -298,48 +337,15 @@ int main()
                 { delete powerups[i]; powerups.erase(powerups.begin() + i); }
         }
 
+        // =====================
         // BOSS UPDATE
+        // =====================
         if (state == GameState::BOSS && boss)
         {
-           
             player->update(deltaTime);
             boss->update(deltaTime);
             for (auto b : bullets) b->update(deltaTime);
-            for (auto p : powerups) p->update(deltaTime);
 
-            // PowerUp-Player Collision
-            for (auto p : powerups)
-            {
-                if (p->getIsActive())
-                {
-                    if (p->getBounds().findIntersection(player->getBounds()).has_value())
-                    {
-                        int newHealth = player->getHealth() + 20;
-                        if (newHealth > player->getMaxHealth())
-                            newHealth = player->getMaxHealth();
-                        player->setHealth(newHealth);
-                        healthText.setString("Health: " + std::to_string(player->getHealth()));
-                        p->setIsActive(false);
-                    }
-                }
-            }
-
-            // PowerUp-Player Collision (PLAYING state mein — boss defeat ke baad boxes)
-                   for (auto p : powerups)
-                        {
-                            if (p->getIsActive())
-                            {
-                                if (p->getBounds().findIntersection(player->getBounds()).has_value())
-                                {
-                                    int newHealth = player->getHealth() + 20;
-                                    if (newHealth > player->getMaxHealth())
-                                        newHealth = player->getMaxHealth();
-                                    player->setHealth(newHealth);
-                                    healthText.setString("Health: " + std::to_string(player->getHealth()));
-                                    p->setIsActive(false);
-                                }
-                            }
-                        }
             // Bullet-Boss Collision
             for (auto b : bullets)
             {
@@ -349,15 +355,17 @@ int main()
                     {
                         b->setIsActive(false);
                         boss->takeDamage(b->getDamage());
+
                         if (boss->isDefeated())
                         {
                             score += boss->getPointValue();
                             scoreText.setString("Score: " + std::to_string(score));
                             scoreManager.addScore(score);
 
-                            bossesDefeated++;
                             delete boss;
                             boss = nullptr;
+
+                            bossesDefeated++;
 
                             // Difficulty increase
                             spawnInterval -= 0.3f;
@@ -366,34 +374,13 @@ int main()
                             // Next boss threshold
                             nextBossScore = score + 100 + (bossesDefeated * 50);
                             bossSpawned = false;
+                            powerupTimer = 0.0f;
 
                             levelText.setString("Level: " + std::to_string(bossesDefeated + 1));
                             showBossDefeated = true;
                             bossDefeatedClock.restart();
-                            powerupTimer = 0.0f;
 
-                            // Clear powerups
-                            // Sab powerups clear karo
-                                for (auto p : powerups) delete p;
-                                powerups.clear();
-
-                                // PowerUp timer reset — boxes baad mein girengy
-                                powerupTimer = 0.0f;
-                                bossesDefeated++;
-
-                                // Difficulty increase
-                                spawnInterval -= 0.3f;
-                                if (spawnInterval < 0.5f) spawnInterval = 0.5f;
-
-                                // Next boss threshold
-                                nextBossScore = score + 100 + (bossesDefeated * 50);
-                                bossSpawned = false;
-
-                                levelText.setString("Level: " + std::to_string(bossesDefeated + 1));
-                                showBossDefeated = true;
-                                bossDefeatedClock.restart();
-
-                                state = GameState::PLAYING;
+                            state = GameState::PLAYING;
                         }
                     }
                 }
@@ -415,18 +402,21 @@ int main()
                 }
             }
 
-            // Cleanup
+            // Cleanup bullets
             for (int i = bullets.size() - 1; i >= 0; i--)
                 if (!bullets[i]->getIsActive())
                 { delete bullets[i]; bullets.erase(bullets.begin() + i); }
-
-            for (int i = powerups.size() - 1; i >= 0; i--)
-                if (!powerups[i]->getIsActive())
-                { delete powerups[i]; powerups.erase(powerups.begin() + i); }
         }
 
+        // =====================
         // DRAW
+        // =====================
         window.clear(sf::Color::Black);
+
+        // Stars background
+        if (state == GameState::PLAYING || state == GameState::BOSS)
+            for (auto& star : stars)
+                window.draw(star);
 
         if (state == GameState::MENU)
         {
